@@ -1,0 +1,569 @@
+---
+title: "BELIEVE Phenotype Preparation"
+author: "Joud Touqan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    theme: flatly
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(jsonlite)
+```
+
+---
+
+## 1. Read Data
+
+```{r read-data}
+phenotype_data_raw <- read.csv(
+  "/home/jt962/rds/rds-post_qc_data-pNR2rM6BWWA/believe/phenotype/data_freeze_3/analysis_regeneron.csv",
+  stringsAsFactors = FALSE)
+
+cat("Number of participants:", nrow(phenotype_data_raw), "\n")
+cat("Number of variables:",   ncol(phenotype_data_raw), "\n")
+```
+
+---
+
+## 2. Select Columns
+
+```{r select-columns}
+phenotype_data <- phenotype_data_raw %>%
+  select(genid, idno, study, ages, sex, ht, wt, bmi, waist, hip, whr, fatmass, fatperc)
+
+cat("Columns selected:", nrow(phenotype_data), "rows x", ncol(phenotype_data), "columns\n")
+```
+
+---
+
+## 3. Cleaning
+
+```{r cleaning}
+# a. Combine study + idno for a unique identifier across all sites
+phenotype_data <- phenotype_data %>%
+  mutate(unique_id = paste(study, idno, sep = "_"))
+
+# b. Remove participants with missing geneid
+n_without_genid <- sum(is.na(phenotype_data$genid))
+phenotype_data <- phenotype_data %>%
+  filter(!is.na(genid))
+cat("Participants removed (Geneid = NA):", n_without_genid, "\n")
+cat("Number of participants after filtering:", nrow(phenotype_data), "\n")
+
+# c. Exclude children under 18
+n_before_age <- nrow(phenotype_data)
+phenotype_data <- phenotype_data %>%
+  filter(ages >= 18)
+cat("Participants removed (age < 18):", n_before_age - nrow(phenotype_data), "\n")
+cat("Participants aged 18 and over (also full analysis cohort):", nrow(phenotype_data), "\n")
+
+# d. Convert sex to numeric — SAIGE requires 0 = Male, 1 = Female
+phenotype_data <- phenotype_data %>%
+  mutate(sex_numeric = case_when(
+    sex == "Male"   ~ 0,
+    sex == "Female" ~ 1,
+    TRUE            ~ NA_real_
+  ))
+
+cat("\nSex coding check:\n")
+print(table(phenotype_data$sex, phenotype_data$sex_numeric, useNA = "always"))
+```
+
+---
+
+## 4. Preliminary Exploration
+
+### 4.1 Missing Data Summary
+
+```{r missing-data}
+missing_summary <- data.frame(
+  trait     = c("ht", "wt", "bmi", "waist", "hip", "whr", "fatmass", "fatperc"),
+  n_before  = sapply(c("ht", "wt", "bmi", "waist", "hip", "whr", "fatmass", "fatperc"),
+                     function(v) sum(!is.na(phenotype_data[[v]]))),
+  n_missing = sapply(c("ht", "wt", "bmi", "waist", "hip", "whr", "fatmass", "fatperc"),
+                     function(v) sum(is.na(phenotype_data[[v]])))
+)
+
+missing_summary$n_after <- missing_summary$n_before - missing_summary$n_missing
+
+missing_wide <- as.data.frame(t(missing_summary[, -1]))
+colnames(missing_wide) <- missing_summary$trait
+rownames(missing_wide) <- c("N with data", "N missing", "N after removing missing")
+print(missing_wide)
+```
+
+### 4.2 Check for Impossible Values
+
+```{r impossible-values}
+cat("Number of impossible values:\n")
+phenotype_data %>%
+  summarise(
+    bmi_neg     = sum(bmi     < 0, na.rm = TRUE),
+    waist_neg   = sum(waist   < 0, na.rm = TRUE),
+    hip_neg     = sum(hip     < 0, na.rm = TRUE),
+    whr_neg     = sum(whr     < 0, na.rm = TRUE),
+    fatmass_neg = sum(fatmass < 0, na.rm = TRUE),
+    fatperc_neg = sum(fatperc < 0, na.rm = TRUE)
+  ) %>% print()
+```
+
+---
+
+## 5. Remove Outliers
+
+Values > 5 SDs from the mean are set to NA. The participant is kept.
+
+```{r outliers}
+flag_outliers <- function(x) {
+  mean_x  <- mean(x, na.rm = TRUE)
+  sd_x    <- sd(x, na.rm = TRUE)
+  outlier <- abs(x - mean_x) > 5 * sd_x
+  outlier[is.na(x)] <- FALSE
+  return(outlier)
+}
+
+traits <- c("bmi", "waist", "hip", "whr", "fatmass", "fatperc", "ht", "wt")
+
+outlier_summary <- data.frame(
+  trait      = traits,
+  n_before   = NA_integer_,
+  n_outliers = NA_integer_,
+  n_after    = NA_integer_
+)
+
+for (i in seq_along(traits)) {
+  trait    <- traits[i]
+  n_before <- sum(!is.na(phenotype_data[[trait]]))
+  outliers  <- flag_outliers(phenotype_data[[trait]])
+  phenotype_data[[trait]][outliers] <- NA
+  n_after  <- sum(!is.na(phenotype_data[[trait]]))
+
+  outlier_summary$n_before[i]   <- n_before
+  outlier_summary$n_outliers[i] <- n_before - n_after
+  outlier_summary$n_after[i]    <- n_after
+}
+
+outlier_wide <- as.data.frame(t(outlier_summary[, -1]))
+colnames(outlier_wide) <- outlier_summary$trait
+rownames(outlier_wide) <- c("N before", "Outliers removed", "N after")
+print(outlier_wide)
+```
+
+---
+
+## 6. WHR Adjustment for BMI
+
+WHR is regressed on BMI to capture fat distribution independent of overall body size. Residuals are used as adjusted WHR.
+
+```{r whr-adjustment}
+whr_model <- lm(whr ~ bmi, data = phenotype_data, na.action = na.exclude)
+phenotype_data$whr_bmi_adj <- residuals(whr_model)
+cat("WHR adjusted for BMI using linear regression.\n")
+```
+
+---
+
+## 7. Covariate Adjustment
+
+Age, age², sex, and study site are regressed out of each trait.
+
+```{r covariate-adjustment}
+phenotype_data <- phenotype_data %>%
+  mutate(age_sq = ages^2)
+
+adjust_trait <- function(trait_col, data) {
+  formula <- as.formula(paste(trait_col, "~ ages + age_sq + sex_numeric + study"))
+  model   <- lm(formula, data = data, na.action = na.exclude)
+  resids  <- residuals(model)
+  return(resids)
+}
+
+traits_to_adjust <- c("bmi", "waist", "hip", "whr_bmi_adj", "fatmass", "fatperc")
+
+adjustment_summary <- data.frame(
+  trait    = traits_to_adjust,
+  n_before = NA_integer_,
+  n_after  = NA_integer_
+)
+
+for (i in seq_along(traits_to_adjust)) {
+  trait   <- traits_to_adjust[i]
+  adj_col <- paste0(trait, "_adj")
+
+  n_before <- sum(!is.na(phenotype_data[[trait]]))
+  phenotype_data[[adj_col]] <- adjust_trait(trait, phenotype_data)
+  n_after  <- sum(!is.na(phenotype_data[[adj_col]]))
+
+  adjustment_summary$n_before[i] <- n_before
+  adjustment_summary$n_after[i]  <- n_after
+}
+
+cat("Covariate adjustment complete. Summary:\n")
+adj_wide <- as.data.frame(t(adjustment_summary[, -1]))
+colnames(adj_wide) <- adjustment_summary$trait
+rownames(adj_wide) <- c("N before adjustment", "N after adjustment")
+print(adj_wide)
+```
+
+---
+
+## 8. Inverse Normal Transformation (INT)
+
+Adjusted traits are forced into a normal distribution using Blom's method.
+
+```{r int-transformation}
+int_transform <- function(x) {
+  ranks       <- rank(x, na.last = "keep", ties.method = "average")
+  n           <- sum(!is.na(x))
+  transformed <- qnorm((ranks - 0.5) / n)
+  return(transformed)
+}
+
+traits_adj <- paste0(traits_to_adjust, "_adj")
+
+for (trait_adj in traits_adj) {
+  int_col <- sub("_adj$", "_INT", trait_adj)
+  phenotype_data[[int_col]] <- int_transform(phenotype_data[[trait_adj]])
+}
+
+cat("Inverse normal transformation applied to adjusted traits.\n")
+```
+
+---
+
+## 9. Distribution Plots
+
+```{r trait-info}
+output_dir <- "/home/jt962/rds/hpc-work/believe_adiposity/01_phenotype_prep"
+
+raw_18plus <- phenotype_data_raw %>% filter(ages >= 18)
+
+trait_info <- list(
+  list(raw = raw_18plus$bmi,     clean = phenotype_data$bmi,
+       int = phenotype_data$bmi_INT,
+       name = "BMI",      unit = "kg/m²", n_out = 30),
+  list(raw = raw_18plus$whr,     clean = phenotype_data$whr,
+       int = phenotype_data$whr_bmi_adj_INT,
+       name = "WHR",      unit = "",      n_out = 20),
+  list(raw = raw_18plus$waist,   clean = phenotype_data$waist,
+       int = phenotype_data$waist_INT,
+       name = "Waist",    unit = "cm",    n_out = 5),
+  list(raw = raw_18plus$hip,     clean = phenotype_data$hip,
+       int = phenotype_data$hip_INT,
+       name = "Hip",      unit = "cm",    n_out = 29),
+  list(raw = raw_18plus$fatmass, clean = phenotype_data$fatmass,
+       int = phenotype_data$fatmass_INT,
+       name = "Fat Mass", unit = "kg",    n_out = 19),
+  list(raw = raw_18plus$fatperc, clean = phenotype_data$fatperc,
+       int = phenotype_data$fatperc_INT,
+       name = "Fat %",    unit = "%",     n_out = 0)
+)
+```
+
+### 9.1 Plot Functions
+
+```{r plot-functions}
+plot_trait <- function(raw_vals, clean_vals, trait_name, unit, n_outliers) {
+  outlier_mask <- flag_outliers(raw_vals)
+  n_before     <- sum(!is.na(raw_vals))
+  trait_mean   <- mean(clean_vals, na.rm = TRUE)
+
+  hist(clean_vals,
+       breaks   = 40,
+       col      = "steelblue",
+       border   = "white",
+       main     = paste0(trait_name, ifelse(unit != "", paste0(" (", unit, ")"), "")),
+       xlab     = trait_name,
+       ylab     = "Count",
+       xlim     = range(raw_vals, na.rm = TRUE),
+       ylim     = c(0, max(hist(clean_vals, breaks = 40, plot = FALSE)$counts) * 1.25),
+       las      = 1,
+       cex.main = 1.4,
+       cex.lab  = 1.3,
+       cex.axis = 1.3)
+
+  if (any(outlier_mask, na.rm = TRUE)) {
+    hist(raw_vals[outlier_mask],
+         breaks = 40,
+         col    = rgb(1, 0.3, 0.3, 0.6),
+         border = NA,
+         add    = TRUE)
+  }
+
+  abline(v = trait_mean, col = "darkred", lwd = 2.5, lty = 2)
+
+  legend("topright",
+         legend = c(
+           paste0("N before: ",        format(n_before, big.mark = ",")),
+           paste0("Outliers removed: ", n_outliers),
+           paste0("Mean: ",             round(trait_mean, 2))
+         ),
+         bty      = "n",
+         cex      = 1.3,
+         text.col = c("black", "black", "darkred"))
+}
+
+plot_int <- function(int_vals, trait_name, n_final) {
+  trait_mean <- mean(int_vals, na.rm = TRUE)
+
+  hist(int_vals,
+       breaks   = 40,
+       col      = "#2ecc71",
+       border   = "white",
+       main     = paste0(trait_name, " - after INT"),
+       xlab     = "Inverse normal transformed value",
+       ylab     = "Count",
+       las      = 1,
+       cex.main = 1.4,
+       cex.lab  = 1.3,
+       cex.axis = 1.3)
+
+  abline(v = trait_mean, col = "darkgreen", lwd = 2.5, lty = 2)
+
+  legend("topright",
+         legend = c(
+           paste0("N: ",    format(n_final, big.mark = ",")),
+           paste0("Mean: ", round(trait_mean, 3)),
+           paste0("SD: ",   round(sd(int_vals, na.rm = TRUE), 3))
+         ),
+         bty      = "n",
+         cex      = 1.3,
+         text.col = c("black", "darkgreen", "darkgreen"))
+}
+```
+
+### 9.2 Raw Distributions
+
+```{r raw-distributions, fig.width=18, fig.height=12}
+par(mfrow = c(2, 3),
+    mar   = c(5, 6.5, 4, 2),
+    oma   = c(1, 1, 2, 1),
+    mgp   = c(4, 1, 0))
+
+for (t in trait_info) {
+  plot_trait(t$raw, t$clean, t$name, t$unit, t$n_out)
+}
+mtext("Raw trait distributions (before cleaning)", outer = TRUE, cex = 1.5, font = 2)
+```
+
+### 9.3 Post-INT Distributions
+
+```{r int-distributions, fig.width=18, fig.height=12}
+par(mfrow = c(2, 3),
+    mar   = c(5, 6.5, 4, 2),
+    oma   = c(1, 1, 2, 1),
+    mgp   = c(4, 1, 0))
+
+for (t in trait_info) {
+  plot_int(t$int, t$name, sum(!is.na(t$int)))
+}
+mtext("Trait distributions after covariate adjustment and INT", outer = TRUE, cex = 1.5, font = 2)
+```
+
+### 9.4 Save Distribution PDF
+
+```{r save-pdf}
+pdf(file.path(output_dir, "phenotype_distributions.pdf"), width = 18, height = 12)
+
+par(mfrow = c(2, 3), mar = c(5, 6.5, 4, 2), oma = c(1, 1, 2, 1), mgp = c(4, 1, 0))
+for (t in trait_info) { plot_trait(t$raw, t$clean, t$name, t$unit, t$n_out) }
+mtext("Raw trait distributions (before cleaning)", outer = TRUE, cex = 1.5, font = 2)
+
+par(mfrow = c(2, 3), mar = c(5, 6.5, 4, 2), oma = c(1, 1, 2, 1), mgp = c(4, 1, 0))
+for (t in trait_info) { plot_int(t$int, t$name, sum(!is.na(t$int))) }
+mtext("Trait distributions after covariate adjustment and INT", outer = TRUE, cex = 1.5, font = 2)
+
+dev.off()
+cat("Distribution plots saved to:", file.path(output_dir, "phenotype_distributions.pdf"), "\n")
+```
+
+---
+
+## 10. SAIGE Output File
+
+```{r saige-output}
+saige_output <- phenotype_data %>%
+  mutate(
+    FID = genid,
+    IID = genid
+  ) %>%
+  select(
+    FID, IID,
+    bmi_INT,
+    whr_bmi_adj_INT,
+    waist_INT,
+    hip_INT,
+    fatmass_INT,
+    fatperc_INT,
+    ages,
+    age_sq,
+    sex_numeric,
+    study
+  )
+
+cat("SAIGE output dimensions:", nrow(saige_output), "rows x", ncol(saige_output), "cols\n")
+
+out_saige <- file.path(output_dir, "believe_phenotypes_saige.txt")
+write.table(
+  saige_output,
+  file      = out_saige,
+  sep       = "\t",
+  row.names = FALSE,
+  quote     = FALSE,
+  na        = "NA"
+)
+cat("SAIGE phenotype file saved to:", out_saige, "\n")
+```
+
+---
+
+## 11. Summary JSON for PowerPoint
+
+```{r summary-json}
+# Step 1 — Data quality rows per trait
+data_quality_rows <- lapply(trait_info, function(t) {
+  list(
+    trait      = t$name,
+    n_raw      = sum(!is.na(t$raw)),
+    n_missing  = sum(is.na(t$raw)),
+    n_negative = sum(t$raw < 0, na.rm = TRUE),
+    n_outliers = t$n_out,
+    n_final    = sum(!is.na(t$clean)),
+    mean_final = round(mean(t$clean, na.rm = TRUE), 2),
+    sd_final   = round(sd(t$clean,   na.rm = TRUE), 2)
+  )
+})
+
+# Step 2 — Site-level summary table
+site_summary <- phenotype_data %>%
+  group_by(study) %>%
+  summarise(
+    n            = n(),
+    age_mean     = round(mean(ages,    na.rm = TRUE), 1),
+    age_sd       = round(sd(ages,      na.rm = TRUE), 1),
+    pct_female   = round(mean(sex == "Female", na.rm = TRUE) * 100, 1),
+    bmi_mean     = round(mean(bmi,     na.rm = TRUE), 2),
+    bmi_sd       = round(sd(bmi,       na.rm = TRUE), 2),
+    whr_mean     = round(mean(whr,     na.rm = TRUE), 3),
+    whr_sd       = round(sd(whr,       na.rm = TRUE), 3),
+    waist_mean   = round(mean(waist,   na.rm = TRUE), 1),
+    waist_sd     = round(sd(waist,     na.rm = TRUE), 1),
+    fatmass_mean = round(mean(fatmass, na.rm = TRUE), 1),
+    fatmass_sd   = round(sd(fatmass,   na.rm = TRUE), 1),
+    fatperc_mean = round(mean(fatperc, na.rm = TRUE), 1),
+    fatperc_sd   = round(sd(fatperc,   na.rm = TRUE), 1)
+  )
+
+# Step 3 — Overall summary row
+overall_summary <- phenotype_data %>%
+  summarise(
+    study        = "All sites",
+    n            = n(),
+    age_mean     = round(mean(ages,    na.rm = TRUE), 1),
+    age_sd       = round(sd(ages,      na.rm = TRUE), 1),
+    pct_female   = round(mean(sex == "Female", na.rm = TRUE) * 100, 1),
+    bmi_mean     = round(mean(bmi,     na.rm = TRUE), 2),
+    bmi_sd       = round(sd(bmi,       na.rm = TRUE), 2),
+    whr_mean     = round(mean(whr,     na.rm = TRUE), 3),
+    whr_sd       = round(sd(whr,       na.rm = TRUE), 3),
+    waist_mean   = round(mean(waist,   na.rm = TRUE), 1),
+    waist_sd     = round(sd(waist,     na.rm = TRUE), 1),
+    fatmass_mean = round(mean(fatmass, na.rm = TRUE), 1),
+    fatmass_sd   = round(sd(fatmass,   na.rm = TRUE), 1),
+    fatperc_mean = round(mean(fatperc, na.rm = TRUE), 1),
+    fatperc_sd   = round(sd(fatperc,   na.rm = TRUE), 1)
+  )
+
+# Step 4 — Combine and convert to JSON-friendly list
+full_summary <- bind_rows(site_summary, overall_summary)
+
+summary_table_rows <- lapply(1:nrow(full_summary), function(i) {
+  row <- full_summary[i, ]
+  list(
+    study      = row$study,
+    n          = row$n,
+    age        = paste0(row$age_mean,     " (", row$age_sd, ")"),
+    pct_female = paste0(row$pct_female,   "%"),
+    bmi        = paste0(row$bmi_mean,     " (", row$bmi_sd, ")"),
+    whr        = paste0(row$whr_mean,     " (", row$whr_sd, ")"),
+    waist      = paste0(row$waist_mean,   " (", row$waist_sd, ")"),
+    fatmass    = paste0(row$fatmass_mean, " (", row$fatmass_sd, ")"),
+    fatperc    = paste0(row$fatperc_mean, " (", row$fatperc_sd, ")")
+  )
+})
+
+# Step 5 — Build full JSON
+summary_json <- list(
+  total_participants = nrow(phenotype_data_raw),
+  after_age_filter   = nrow(phenotype_data),
+  n_with_fatmass     = sum(!is.na(phenotype_data$fatmass)),
+  n_with_bmi         = sum(!is.na(phenotype_data$bmi)),
+  summary_table      = summary_table_rows,
+  data_quality       = data_quality_rows,
+
+  sites = list(
+    list(name = "BELIEVE (Urban)",    n = sum(phenotype_data$study == "BELIEVE")),
+    list(name = "BELSLUM (Slum)",     n = sum(phenotype_data$study == "BELSLUM")),
+    list(name = "BELRURAL (Rural)",   n = sum(phenotype_data$study == "BELRURAL")),
+    list(name = "BELURBAN (Urban 2)", n = sum(phenotype_data$study == "BELURBAN"))
+  ),
+
+  traits = list(
+    list(name = "BMI",      unit = "kg/m\u00B2",
+         mean = round(mean(phenotype_data$bmi,     na.rm = TRUE), 2),
+         sd   = round(sd(phenotype_data$bmi,       na.rm = TRUE), 2),
+         n    = sum(!is.na(phenotype_data$bmi))),
+    list(name = "WHR",      unit = "",
+         mean = round(mean(phenotype_data$whr,     na.rm = TRUE), 3),
+         sd   = round(sd(phenotype_data$whr,       na.rm = TRUE), 3),
+         n    = sum(!is.na(phenotype_data$whr))),
+    list(name = "Waist",    unit = "cm",
+         mean = round(mean(phenotype_data$waist,   na.rm = TRUE), 1),
+         sd   = round(sd(phenotype_data$waist,     na.rm = TRUE), 1),
+         n    = sum(!is.na(phenotype_data$waist))),
+    list(name = "Hip",      unit = "cm",
+         mean = round(mean(phenotype_data$hip,     na.rm = TRUE), 1),
+         sd   = round(sd(phenotype_data$hip,       na.rm = TRUE), 1),
+         n    = sum(!is.na(phenotype_data$hip))),
+    list(name = "Fat Mass", unit = "kg",
+         mean = round(mean(phenotype_data$fatmass, na.rm = TRUE), 1),
+         sd   = round(sd(phenotype_data$fatmass,   na.rm = TRUE), 1),
+         n    = sum(!is.na(phenotype_data$fatmass))),
+    list(name = "Fat %",    unit = "%",
+         mean = round(mean(phenotype_data$fatperc, na.rm = TRUE), 1),
+         sd   = round(sd(phenotype_data$fatperc,   na.rm = TRUE), 1),
+         n    = sum(!is.na(phenotype_data$fatperc)))
+  ),
+
+  outliers_removed = list(
+    list(trait = "BMI",      n = sum(flag_outliers(phenotype_data_raw$bmi))),
+    list(trait = "WHR",      n = sum(flag_outliers(phenotype_data_raw$whr))),
+    list(trait = "Waist",    n = sum(flag_outliers(phenotype_data_raw$waist))),
+    list(trait = "Hip",      n = sum(flag_outliers(phenotype_data_raw$hip))),
+    list(trait = "Fat Mass", n = sum(flag_outliers(phenotype_data_raw$fatmass))),
+    list(trait = "Fat %",    n = sum(flag_outliers(phenotype_data_raw$fatperc)))
+  )
+)
+
+# Step 6 — Write JSON
+json_path <- file.path(output_dir, "summary_stats.json")
+write_json(summary_json, json_path, pretty = TRUE, auto_unbox = TRUE)
+cat("JSON saved to:", json_path, "\n")
+```
+
+---
+
+## Summary
+
+```{r final-summary}
+cat("Phenotype preparation done\n")
+cat("Output files in:", output_dir, "\n")
+cat("  - believe_phenotypes_saige.txt   (input for SAIGE GWAS)\n")
+cat("  - phenotype_distributions.pdf    (distribution check plots)\n")
+cat("  - summary_stats.json             (summary statistics for PowerPoint)\n")
+```
