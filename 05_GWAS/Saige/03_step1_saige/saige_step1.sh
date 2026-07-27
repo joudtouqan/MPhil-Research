@@ -1,15 +1,4 @@
-#!/bin/bash
-#SBATCH --job-name=saige_step1
-#SBATCH --array=1-6
-#SBATCH --output=logs/step1_%A_%a_%x.log
-#SBATCH --error=logs/step1_%A_%a_%x.err
-#SBATCH --time=04:00:00
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --partition=icelake
-#SBATCH --account=BUTTERWORTH-SL2-CPU
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=jt962@cam.ac.uk
+
 
 PHENOS=(bmi_INT whr_bmi_adj_INT waist_INT hip_INT fatmass_INT fatperc_INT)
 PHENO_NAME=${PHENOS[$((SLURM_ARRAY_TASK_ID - 1))]}
