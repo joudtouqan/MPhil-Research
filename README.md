@@ -7,7 +7,7 @@ the same `NN_stage/...` path as the outputs it produces. Each results folder the
 
 ## Core analysis pipeline (script ↔ Methods section)
 
-These fifteen scripts are the primary analysis chain — the ones the Methods describe. Everything
+These  scripts are the primary analysis chain — the ones the Methods describe. Everything
 else in the tree is diagnostics, figure regeneration, sensitivity re-runs, or exploratory work.
 They run in the order listed; each consumes the previous stage's output.
 
