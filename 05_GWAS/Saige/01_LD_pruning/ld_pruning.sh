@@ -1,14 +1,4 @@
-#!/bin/bash
-#SBATCH --job-name=ld_prune
-#SBATCH --time=4:00:00
-#SBATCH --partition=icelake
-#SBATCH --account=BUTTERWORTH-SL2-CPU
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=jt962@cam.ac.uk
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --output=/home/jt962/rds/hpc-work/believe_adiposity/05_GWAS/Saige/01_LD_pruning/logs/ld_prune_%j.log
-#SBATCH --error=/home/jt962/rds/hpc-work/believe_adiposity/05_GWAS/Saige/01_LD_pruning/logs/ld_prune_%j.err
+
 
 set -euo pipefail
 module load plink/2.00-alpha
