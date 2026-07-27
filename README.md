@@ -68,42 +68,7 @@ They run in the order listed; each consumes the previous stage's output.
 | [`11_finemap/sweep_hds/prep_locus_hds.sh`](11_finemap/sweep_hds/prep_locus_hds.sh) | **FINEMAP input preparation** for one locus using **in-sample** BELIEVE LD. Takes variants within ±250 kb of the index with MAF ≥ 0.01, computes the signed r correlation matrix in PLINK with `--keep-allele-order`, and writes the z-file in exactly the LD matrix's variant order with effect allele = ALT = SAIGE `Allele2`. Row-order and allele-orientation agreement between the z-file and the LD matrix is the correctness condition for FINEMAP. |
 | [`11_finemap/sweep_hds/sweep_parse_hds.py`](11_finemap/sweep_hds/sweep_parse_hds.py) | **Fine-mapping summary.** Iterates every (trait, lead) window in the manifest and extracts credible-set sizes, posterior inclusion probabilities, the lead variant's PIP (matched on exact variant ID, not position), and the log10 Bayes factor for ≥ one causal variant; flags leads with low INFO or absent from the LD reference. |
 
-## Stage layout (scripts here ↔ results in `believe_adiposity/`)
-
-| Stage | Purpose |
-|---|---|
-| `00_Understanding_data` | initial data exploration / file-path mapping |
-| `01_phenotype_prep` | phenotype residualisation + INT → SAIGE input |
-| `02_sample_QC` | sample QC |
-| `03_variant_QC` | variant QC, filtered PGEN (GT + HDS dosage) builds |
-| `05_GWAS` | SAIGE (primary) + PLINK2 (exploratory) GWAS of 6 adiposity traits |
-| `06_Conditional_analysis` | conditional/iterative locus analysis, LocusZoom |
-| `07_annotation`, `07_annotation_v2` | lead-variant annotation (ancestry, VEP, EUR-LD) |
-| `08_cross_ancestry` | cross-ancestry concordance vs Genes & Health / Pan-UKB |
-| `09_MR` | two-sample MR (SAS/EU), GLP1R cis-MR, positive controls |
-| `10_LDSC` | LD score regression (h² + rg); `ldsc/` upstream tool lives only in results tree |
-| `11_finemap` | FINEMAP fine-mapping |
-| `12_pc_sensitivity` | 6-PC re-run sensitivity analysis |
-| `Final_Figures` | thesis figure generation (rendered PNG/PDF land in the results tree) |
-| `lambda_covar_diagnostic` | λ / covariate-adjustment diagnostic sub-project |
-| `methods_draft` | methods prose, audit table, discrepancy log |
 
 ## Code/output split
 **Every** script lives here; **every** output lives under `~/rds/hpc-work/believe_adiposity/`.
-Scripts address their outputs by absolute path into the results tree, so a script can be run
-from anywhere. Two consequences worth keeping:
-- Rendered artefacts (`.html` reports, `.png`/`.pdf` figures, `.log`/`.out` job logs) belong in
-  the results tree even when a script sits beside where they used to be written.
-- Large data and indexes (`.bgen`, `.bgi`, sample lists, symlink farms) live in the results tree
-  under `03_variant_QC/`, never here.
-
-## Notes
-- `.gitignore` excludes data (csv/txt/RData/rds/pdf/json) — only code is tracked. Note `.png`
-  and `.html` are **not** currently excluded.
-- Naming wrinkles kept intentionally: `05_GWAS/plink_exploration` here ↔
-  `05_GWAS/plink2_exploratory` in results; `07_annotation_v2` is the later, used annotation
-  version (its outputs land in the results tree's single `07_annotation/`).
-- Some folder paths differ from where the scripts previously sat in the results tree:
-  `05_GWAS/Saige/05_QC_and_vis/diagnostics_qq_band/` writes to
-  `05_GWAS/Saige/05_post_gwas/HDS/diagnostics_qq_band/`; `06_Conditional_analysis/transfer_ldmatched/`
-  and `08_cross_ancestry/work_task1/` write to the corresponding `output/` subdirectories.
+Scripts address their outputs by absolute path into the results tree, 
