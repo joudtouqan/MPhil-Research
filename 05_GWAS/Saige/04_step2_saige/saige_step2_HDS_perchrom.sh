@@ -1,15 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=s2_HDS_perchr
-#SBATCH --array=1-22%5
-#SBATCH --output=/home/jt962/rds/hpc-work/believe_adiposity/05_GWAS/Saige/04_step2_saige/HDS/logs/perchr_%A_%a.out
-#SBATCH --error=/home/jt962/rds/hpc-work/believe_adiposity/05_GWAS/Saige/04_step2_saige/HDS/logs/perchr_%A_%a.err
-#SBATCH --time=1-12:00:00
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=96G
-#SBATCH --partition=icelake-himem
-#SBATCH --account=BUTTERWORTH-SL2-CPU
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=jt962@cam.ac.uk
 
 # ============================================================
 # SAIGE Step 2 - single-variant tests on HDS dosages (BGEN)
