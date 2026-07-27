@@ -1,14 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=make_filtered_pgen_hds
-#SBATCH --output=/home/jt962/rds/hpc-work/believe_adiposity/03_variant_QC/logs/make_pgen_hds_%j.out
-#SBATCH --error=/home/jt962/rds/hpc-work/believe_adiposity/03_variant_QC/logs/make_pgen_hds_%j.err
-#SBATCH --time=04:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
-#SBATCH -p icelake
-#SBATCH -A BUTTERWORTH-SL2-CPU
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=jt962@cam.ac.uk
 
 # ============================================================
 # Rebuild the BELIEVE Freeze Two analysis-ready PGEN using HDS (dosage) input
