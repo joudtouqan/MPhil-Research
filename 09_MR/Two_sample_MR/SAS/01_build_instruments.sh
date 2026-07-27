@@ -1,12 +1,4 @@
-#!/bin/bash
-#SBATCH --job-name=mr_instruments
-#SBATCH --output=/home/jt962/rds/hpc-work/believe_adiposity/09_MR/logs/01_build_instruments_%j.out
-#SBATCH --error=/home/jt962/rds/hpc-work/believe_adiposity/09_MR/logs/01_build_instruments_%j.err
-#SBATCH --time=01:00:00
-#SBATCH --mem=16G
-#SBATCH --cpus-per-task=4
-#SBATCH -p icelake
-#SBATCH -A BUTTERWORTH-SL2-CPU
+
 
 # ============================================================================
 # Step 2 of the BELIEVE->G&H two-sample MR pipeline: build exposure instruments.
