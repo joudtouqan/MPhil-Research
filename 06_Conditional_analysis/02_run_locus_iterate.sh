@@ -1,14 +1,4 @@
-#!/bin/bash
-#SBATCH --job-name=cond_iter
-#SBATCH --output=/home/jt962/rds/hpc-work/believe_adiposity/06_Conditional_analysis/logs/iter_%x_%j.out
-#SBATCH --error=/home/jt962/rds/hpc-work/believe_adiposity/06_Conditional_analysis/logs/iter_%x_%j.err
-#SBATCH --time=04:00:00
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=64G
-#SBATCH --partition=icelake-himem
-#SBATCH --account=BUTTERWORTH-SL2-CPU
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=jt962@cam.ac.uk
+
 
 # ============================================================
 # STEP 2 : iterative conditional analysis for ONE trait x locus.
