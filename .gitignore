@@ -1,0 +1,12 @@
+*.csv
+*.txt
+*.RData
+*.rds
+*.pdf
+*.json
+
+# Large data / indexes that should never live in the scripts repo (kept on disk only)
+*.bgen
+*.bgen.bgi
+*.bgi
+03_variant_QC/hds_symlinks/
