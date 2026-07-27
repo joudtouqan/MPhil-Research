@@ -1,14 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=build_sparse_grm
-#SBATCH --time=24:00:00
-#SBATCH --partition=icelake-himem
-#SBATCH --account=BUTTERWORTH-SL2-CPU
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=jt962@cam.ac.uk
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=136G
-#SBATCH --output=/home/jt962/rds/hpc-work/believe_adiposity/05_GWAS/Saige/02_GRM/logs/build_sparse_grm_%j.log
-#SBATCH --error=/home/jt962/rds/hpc-work/believe_adiposity/05_GWAS/Saige/02_GRM/logs/build_sparse_grm_%j.err
 
 set -euo pipefail
 
